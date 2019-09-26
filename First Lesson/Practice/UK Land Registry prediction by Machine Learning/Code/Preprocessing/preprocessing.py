@@ -94,7 +94,7 @@ class LandRegistryPreoprocessing(object):
                 trainsetY = trainsetY / dataYMax
                 testsetY = testsetY / dataYMax
 
-            return [(trainsetX, trainsetY), (testsetX, testsetY)]
+            return [(trainsetX, trainsetY), (testsetX, testsetY), (dataXMax, dataYMax)]
         else: 
             print("%s - DataSet File does not exist." % (dataset))
 		

@@ -13,12 +13,12 @@ import numpy
 import os
 import timeit
 import platform
-
+import argparse
 import pdb
 
 # Keras imports
 from keras.callbacks import ModelCheckpoint
-from keras.optimizers import Adam
+from keras.optimizers import SGD
 from keras.wrappers.scikit_learn import KerasClassifier
 
 # Models imports
@@ -26,86 +26,40 @@ from Models.landregistryneuralmodel import LandRegistryNeuralModel
 
 # Other imports
 from Preprocessing.preprocessing import LandRegistryPreoprocessing
+from Settings.settings import SetParameters
 from sklearn.model_selection import StratifiedKFold, GridSearchCV
 
-# Operating System
-OS = platform.system()                                      # returns 'Windows', 'Linux', etc
-
-# Globals
-seed = 23455
-
-# Input
-if OS == "Linux":
-    datasetPath = '../../../'
-elif OS == "Windows": 
-    datasetPath = '../Data'
-
-datasetFile = 'pp-complete.csv' 
-fieldSeparator = ','                                        # CSV field separator     
-demoOnSubset = True											# Test the program on a smaller Dataset
-
-# Output
-printTestModel = True
-logPath = "../SavedLogs"
-logFile = "landregistrylog.txt"
-logPrecision = 2
-numberOfPropertiesToTest = 10
-
-# Models 
-modelsPath = "../SavedModels"
-modelFile = "landregistrymodel.dnn"
-dropoutRate=0.5
-neurons1 = 60 
-neurons2 = 200
-
-# Normalization
-normalizeX = True                                          # Normalize X between 0 and 1
-normalizeY = False                                          # Normalize Y between 0 and 1
-
-# Hyperparameters
-epochsNumber = 10
-batchSize = 64
-learningRate = 0.1		        
-output_size = 1                                              # Number of Model's Outputs
-saveBestModel = True
-earlyStopping = False
-
-# Evaluation
-crossValidation = False                                      # K-fold cross validation 
-K = 10                                                       # K-fold number
-
-def create_model(input_dim = 1, output_size = 1, optimizer='sgd', initMode = 'normal', activation = 'relu', dropoutRate=0.5, neurons1 = 60, neurons2 = 200):
+def create_model(input_dim = 1, output_size = 1, optimizer='sgd', initMode = 'normal', activation = 'relu', neurons1 = 60, neurons2 = 200):
     modelSummary = True
     
     # Build the Land Registry Model 
-    deepLandRegistryNeuralModel = LandRegistryNeuralModel.build(input_dim = input_dim, output_size = output_size, summary = modelSummary, dropoutRate = dropoutRate, neurons1 = neurons1, neurons2 = neurons2)  
+    neuralLandRegistryNeuralModel = LandRegistryNeuralModel.build(input_dim = input_dim, output_size = output_size, summary = modelSummary, neurons1 = neurons1, neurons2 = neurons2)  
     
     # Compile the Land Registry Model
-    deepLandRegistryNeuralModel.compile(loss="mean_squared_error", optimizer=optimizer)
+    neuralLandRegistryNeuralModel.compile(loss="mean_squared_error", optimizer=optimizer)
     
-    return deepLandRegistryNeuralModel
+    return neuralLandRegistryNeuralModel
 
 
-def trainNeuralNet(output_size = output_size):
-    # Set initial seed for reproducibility
-    numpy.random.seed(seed) 
-    
+def trainNeuralNet(par):
+
     # Initialization
     defaultCallbacks = []
     startTime = timeit.default_timer()
 
     # Preprocess Land Registry Data
-    lrp = LandRegistryPreoprocessing(demoOnSubset)			 # Test the program on a smaller Dataset - True or Full Dataset - False	
-    datasets = lrp.loadLandRegistryData(dataPath=datasetPath, dataFile = datasetFile, fieldSeparator = fieldSeparator, normalizeX=normalizeX, normalizeY=normalizeY, demoOnSubset = demoOnSubset)
+    lrp = LandRegistryPreoprocessing(par.demoOnSubset)			 # Test the program on a smaller Dataset - True or Full Dataset - False	
+    datasets = lrp.loadLandRegistryData(dataPath=par.datasetPath, dataFile = par.datasetFile, fieldSeparator = par.fieldSeparator, normalizeX=par.normalizeX, normalizeY=par.normalizeY, demoOnSubset = par.demoOnSubset)
     
     trainsetX, trainsetY = datasets[0]
     testsetX, testsetY = datasets[1]
+    dataXMax, dataYMax = datasets[2]
     
     # Compute the number of batches per dataset
-    nTrainBatches = trainsetX.shape[0] // batchSize
-    nTestBatches = testsetX.shape[0] // batchSize
+    nTrainBatches = trainsetX.shape[0] // par.batchSize
+    nTestBatches = testsetX.shape[0] // par.batchSize
 
-    print ('\n\nBatch size: %i\n' % batchSize)
+    print ('\n\nBatch size: %i\n' % par.batchSize)
 
     print ('Number of training batches: %i' % nTrainBatches)
         
@@ -124,69 +78,76 @@ def trainNeuralNet(output_size = output_size):
     validIndices = []
 
     # define K-fold cross validation
-    if crossValidation == True:
-        print("\n%d-Fold Cross Validation Activated\n" % (K))
-        kfold = StratifiedKFold(n_splits=K, shuffle=True, random_state=seed)
+    if par.crossValidation == True:
+        print("\n%d-Fold Cross Validation Activated\n" % (par.K))
+        kfold = StratifiedKFold(n_splits=par.K, shuffle=True, random_state=seed)
         
         for trainIndex, validIndex in kfold.split(trainsetX, trainsetY):
             trainIndices.append(trainIndex)                                 # Cros-validation partitioning    
             validIndices.append(validIndex)
-    
     else:
         trainIndices.append(numpy.arange(0, trainsetX.shape[0]))            # Normal partitioning otherwise
         validIndices.append(numpy.arange(0, testsetX.shape[0]))
 
     for trainIndex, validIndex in zip(trainIndices, validIndices):
-        if crossValidation == True:
+        if par.crossValidation == True:
             trainsetX, trainsetY = trainsetX[trainIndex], trainsetY[train_index]
             validsetX, validsetY = trainsetX[validIndex], trainsetY[valid_index]
         else:
             validsetX, validsetY = testsetX, testsetY
        
         # Training Algorithms 
-        opt = Adam(lr=learningRate)                                 # Stochastic Gradient Descent Training Algorithm
+        opt = SGD(lr=par.learningRate)                                 # Stochastic Gradient Descent Training Algorithm
 
         # CallBacks definition 
-        checkPoint=ModelCheckpoint(os.path.join("./",modelsPath)+"/"+modelFile, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
+        checkPoint=ModelCheckpoint(os.path.join("./",par.modelsPath)+"/"+par.modelFile, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
 
         print ('\n')
-
+        
         input_dim = trainsetX.shape[1]
-        deepLandRegistryNeuralModel = create_model(input_dim, output_size, opt)                             # Returns the model created                        
-
+        neuralLandRegistryNeuralModel = create_model(input_dim, par.output_size, opt, 'normal', par.activation, par.neurons1, par.neurons2)                             # Returns the model created                        
         print ('\n\n')
 
-        if saveBestModel == True:
+        if par.saveBestModel == True:
             defaultCallbacks = defaultCallbacks+[checkPoint]
 
         # Fit the Land Registry Model 
-        history = deepLandRegistryNeuralModel.fit(trainsetX, trainsetY, validation_data = (validsetX, validsetY), epochs=epochsNumber, batch_size=batchSize, callbacks = defaultCallbacks, shuffle = False, verbose=2)	
+        history = neuralLandRegistryNeuralModel.fit(trainsetX, trainsetY, validation_data = (validsetX, validsetY), epochs=par.epochsNumber, batch_size=par.batchSize, callbacks = defaultCallbacks, shuffle = False, verbose=2)	
 
-        print ('\n\nPredicting on %i properties of 2015...\n' % (numberOfPropertiesToTest))
+        print ('\n\nPredicting on %i properties of 2015...\n' % (par.numberOfPropertiesToTest))
 
-        predictions = deepLandRegistryNeuralModel.predict(testsetX, batch_size = batchSize, verbose = 1)   # as the Batch Size might be greater than numberOfPropertiesToTest we test on the whole Test Set
-        if saveBestModel == True:
-            bestDeepLandRegistryNeuralModel = LandRegistryNeuralModel.build(input_dim = input_dim, output_size = output_size, summary = False, dropoutRate = dropoutRate, neurons1 = neurons1, neurons2 = neurons2)  
-            bestDeepLandRegistryNeuralModel.load_weights(os.path.join("./",modelsPath)+"/"+modelFile)       
-            bestDeepLandRegistryNeuralModel.compile(loss="mean_squared_error", optimizer=opt)
-            bestPredictions = bestDeepLandRegistryNeuralModel.predict(testsetX, batch_size = batchSize, verbose = 1)   # as the Batch Size might be greater than numberOfPropertiesToTest we test on the whole Test Set
+        predictions = neuralLandRegistryNeuralModel.predict(testsetX, batch_size = par.batchSize, verbose = 1)   # as the Batch Size might be greater than numberOfPropertiesToTest we test on the whole Test Set
+        
+        if par.saveBestModel == True:
+            bestNeuralLandRegistryNeuralModel = LandRegistryNeuralModel.build(input_dim = input_dim, output_size = par.output_size, summary = False, neurons1 = par.neurons1, neurons2 = par.neurons2)  
+            bestNeuralLandRegistryNeuralModel.load_weights(os.path.join("./",par.modelsPath)+"/"+par.modelFile)       
+            bestNeuralLandRegistryNeuralModel.compile(loss="mean_squared_error", optimizer=opt)
+            bestPredictions = bestNeuralLandRegistryNeuralModel.predict(testsetX, batch_size = par.batchSize, verbose = 1)   # as the Batch Size might be greater than numberOfPropertiesToTest we test on the whole Test Set
 
-    if printTestModel == True: 
-        logfile = open(os.path.join("./",logPath)+"/"+logFile, "w")
+    if par.printTestModel == True: 
+        logfile = open(os.path.join("./",par.logPath)+"/"+par.logFile, "w")
     
-        numpy.set_printoptions(precision = logPrecision, suppress = True)
+        numpy.set_printoptions(precision = par.logPrecision, suppress = True)
         print ("\n\n\nLast Model: Real Price and Predicted Price : \n") 
         print ("\n\n\nLast Model: Real Price and Predicted Price : \n", file = logfile) 
-        for i in range(numberOfPropertiesToTest):
-            print ("%i: RT %i - PT %i" % (i, testsetY[i,], numpy.round(predictions[i,], logPrecision)))
-            print ("%i: RT %i - PT %i" % (i, testsetY[i,], numpy.round(predictions[i,], logPrecision)), file = logfile)
+        
+        # Denormalize outputs
+        if par.normalizeY == True:
+            testsetY = testsetY * dataYMax
+            predictions = predictions * dataYMax
+            if par.saveBestModel == True:
+                bestPredictions = bestPredictions * dataYMax
+        
+        for i in range(par.numberOfPropertiesToTest):
+            print ("%i: RT %i - PT %i" % (i, testsetY[i,], numpy.round(predictions[i,], par.logPrecision)))
+            print ("%i: RT %i - PT %i" % (i, testsetY[i,], numpy.round(predictions[i,], par.logPrecision)), file = logfile)
     
-        if saveBestModel == True:
+        if par.saveBestModel == True:
             print ("\n\n\nBest Model: Real Price and Predicted Price : \n") 
             print ("\n\n\nBest Model: Real Price and Predicted Price : \n", file = logfile) 
-            for i in range(numberOfPropertiesToTest):
-                print ("%i: RT %i - PT %i" % (i, testsetY[i,], numpy.round(bestPredictions[i,], logPrecision)))
-                print ("%i: RT %i - PT %i" % (i, testsetY[i,], numpy.round(bestPredictions[i,], logPrecision)), file = logfile)
+            for i in range(par.numberOfPropertiesToTest):
+                print ("%i: RT %i - PT %i" % (i, testsetY[i,], numpy.round(bestPredictions[i,], par.logPrecision)))
+                print ("%i: RT %i - PT %i" % (i, testsetY[i,], numpy.round(bestPredictions[i,], par.logPrecision)), file = logfile)
 
         logfile.close()
     
@@ -194,4 +155,25 @@ def trainNeuralNet(output_size = output_size):
     print ('\nTotal time: %.2f minutes' % ((endTime - startTime) / 60.))
 
 if __name__ == '__main__':
-    trainNeuralNet()
+    # Operating System
+    OS = platform.system()                                      # returns 'Windows', 'Linux', etc
+    
+    default_config_file = "landregistrymodel.ini"                                                 # Default Configuration File
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-c", "--conf", help="configuration file name", required = False)
+
+    (arg1) = parser.parse_args()
+    config_file = arg1.conf
+    if config_file is None: 
+        config_file = default_config_file                                                # Default Configuration File
+
+    ## Configuration of the File Parser
+    # Read the Configuration File
+    set_parameters = SetParameters("../Conf", config_file, OS) 
+    par = set_parameters.read_config_file()
+
+    # Set initial seed for reproducibility
+    numpy.random.seed(par.seed) 
+
+    trainNeuralNet(par)
