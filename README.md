@@ -1,2 +1,2 @@
-# machine_learning_exercises
-Exercises for Machine Learning Classes
+# Machine Learning Lessons
+Slides and Exercises for the Machine Learning Course
